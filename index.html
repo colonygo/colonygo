@@ -1027,7 +1027,8 @@
                   </div>
                   <p class="field-error hidden" id="err-consent" role="alert"></p>
                 </div>
-                <button type="submit" class="focus-ring w-full rounded-lg bg-[#62D26F] py-3.5 text-base font-semibold text-white shadow-[0_4px_16px_rgba(98,210,111,0.35)] transition-opacity duration-150 ease-in-out hover:opacity-90">
+                <div id="form-send-error" class="hidden rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700" role="alert"></div>
+                <button id="demo-form-submit" type="submit" class="focus-ring w-full rounded-lg bg-[#62D26F] py-3.5 text-base font-semibold text-white shadow-[0_4px_16px_rgba(98,210,111,0.35)] transition-opacity duration-150 ease-in-out hover:opacity-90">
                   Demander ma démo →
                 </button>
               </form>
@@ -1450,6 +1451,23 @@
       var formCard = document.getElementById('form-card');
       var successCard = document.getElementById('success-card');
       var successHome = document.getElementById('success-home');
+      var formSendError = document.getElementById('form-send-error');
+      var demoSubmitBtn = form ? document.getElementById('demo-form-submit') : null;
+      var demoSubmitDefaultText = demoSubmitBtn ? demoSubmitBtn.textContent.trim() : 'Demander ma démo →';
+
+      function hideDemoFormSendError() {
+        if (formSendError) {
+          formSendError.textContent = '';
+          formSendError.classList.add('hidden');
+        }
+      }
+
+      function showDemoFormSendError(msg) {
+        if (formSendError) {
+          formSendError.textContent = msg;
+          formSendError.classList.remove('hidden');
+        }
+      }
 
       function showError(id, msg) {
         var err = document.getElementById(id);
@@ -1489,6 +1507,7 @@
         form.addEventListener('submit', function (e) {
           e.preventDefault();
           clearErrors();
+          hideDemoFormSendError();
           var ok = true;
           var prenom = document.getElementById('prenom');
           var nom = document.getElementById('nom');
@@ -1522,13 +1541,62 @@
 
           if (!ok) return;
 
-          if (formCard) formCard.classList.add('hidden');
-          if (successCard) {
-            successCard.classList.remove('hidden');
-            successCard.classList.remove('success-reveal');
-            void successCard.offsetWidth;
-            successCard.classList.add('success-reveal');
+          if (demoSubmitBtn) {
+            demoSubmitBtn.disabled = true;
+            demoSubmitBtn.textContent = 'Envoi en cours…';
           }
+
+          var secteurEl = document.getElementById('secteur');
+          var tailleEl = document.getElementById('taille');
+          var messageEl = document.getElementById('message');
+          var formData = {
+            prenom: prenom.value.trim(),
+            nom: nom.value.trim(),
+            email: email.value.trim(),
+            societe: societe.value.trim(),
+            secteur: secteurEl ? secteurEl.value : '',
+            taille: tailleEl ? tailleEl.value : '',
+            message: messageEl ? messageEl.value.trim() : '',
+          };
+
+          fetch('/api/send-demo-request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData),
+          })
+            .then(function (response) {
+              if (response.ok) {
+                return response.json().then(function () {
+                  if (formCard) formCard.classList.add('hidden');
+                  if (successCard) {
+                    successCard.classList.remove('hidden');
+                    successCard.classList.remove('success-reveal');
+                    void successCard.offsetWidth;
+                    successCard.classList.add('success-reveal');
+                  }
+                });
+              }
+              if (response.status === 429) {
+                showDemoFormSendError(
+                  'Trop de demandes envoyées. Veuillez réessayer dans une heure.'
+                );
+                return;
+              }
+              showDemoFormSendError(
+                'Une erreur est survenue. Veuillez réessayer ou nous contacter directement à contact@colonygo.com'
+              );
+            })
+            .catch(function () {
+              showDemoFormSendError(
+                'Une erreur est survenue. Veuillez réessayer ou nous contacter directement à contact@colonygo.com'
+              );
+            })
+            .finally(function () {
+              if (demoSubmitBtn) {
+                demoSubmitBtn.disabled = false;
+                demoSubmitBtn.textContent = demoSubmitDefaultText;
+              }
+            });
         });
       }
 
@@ -1542,6 +1610,11 @@
             if (f) f.reset();
           }
           clearErrors();
+          hideDemoFormSendError();
+          if (demoSubmitBtn) {
+            demoSubmitBtn.disabled = false;
+            demoSubmitBtn.textContent = demoSubmitDefaultText;
+          }
           window.scrollTo({ top: 0, behavior: 'smooth' });
         });
       }
