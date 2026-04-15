@@ -211,16 +211,90 @@ function logMailError(err, context) {
   }
 }
 
+/**
+ * Maps canonical French fields (used by index.html) and common English / test aliases.
+ * Root cause of "Champs obligatoires manquants" with curl: body used `name`, `company`,
+ * `sector`, `size` while the API only read `prenom`, `nom`, `societe`, `secteur`, `taille`.
+ */
+function firstNonEmpty() {
+  for (var i = 0; i < arguments.length; i++) {
+    var v = arguments[i];
+    if (v != null && String(v).trim() !== '') {
+      return String(v).trim();
+    }
+  }
+  return '';
+}
+
+function normalizeDemoRequestBody(body) {
+  body = body || {};
+  var rawPrenom = firstNonEmpty(body.prenom, body.firstName);
+  var rawNom = firstNonEmpty(body.nom, body.lastName);
+  var fullName = firstNonEmpty(body.name, body.fullName, body.full_name);
+
+  var prenom = sanitizeField(rawPrenom);
+  var nom = sanitizeField(rawNom);
+
+  if (!prenom && !nom && fullName) {
+    var parts = sanitizeField(fullName)
+      .split(/\s+/)
+      .filter(function (p) {
+        return p.length > 0;
+      });
+    if (parts.length === 1) {
+      prenom = parts[0];
+      nom = '—';
+    } else if (parts.length > 1) {
+      prenom = parts[0];
+      nom = parts.slice(1).join(' ');
+    }
+  }
+
+  return {
+    prenom: prenom,
+    nom: nom,
+    email: sanitizeField(firstNonEmpty(body.email, body.mail)),
+    societe: sanitizeField(firstNonEmpty(body.societe, body.company, body.organization, body.org)),
+    secteur: sanitizeField(firstNonEmpty(body.secteur, body.sector, body.industry)),
+    taille: sanitizeField(firstNonEmpty(body.taille, body.size, body.companySize)),
+    message: sanitizeField(firstNonEmpty(body.message, body.msg, body.comments)),
+  };
+}
+
+function consentIsValid(body) {
+  if (!Object.prototype.hasOwnProperty.call(body, 'consent')) {
+    return true;
+  }
+  var c = body.consent;
+  if (c === true) return true;
+  if (c === 'true' || c === 1 || c === '1') return true;
+  return false;
+}
+
 app.post('/api/send-demo-request', demoRequestLimiter, async function (req, res) {
   const body = req.body || {};
 
-  const prenom = sanitizeField(body.prenom);
-  const nom = sanitizeField(body.nom);
-  const email = sanitizeField(body.email);
-  const societe = sanitizeField(body.societe);
-  const secteur = sanitizeField(body.secteur);
-  const taille = sanitizeField(body.taille);
-  const message = sanitizeField(body.message);
+  if (process.env.LOG_DEMO_BODY === '1') {
+    console.log('[demo-request] BODY RECEIVED:', body);
+  } else {
+    console.log('[demo-request] keys:', Object.keys(body));
+  }
+
+  if (!consentIsValid(body)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Le consentement est obligatoire.',
+    });
+  }
+
+  const normalized = normalizeDemoRequestBody(body);
+  var prenom = normalized.prenom;
+  var nom = normalized.nom;
+  var email = normalized.email;
+  var societe = normalized.societe;
+  var secteur = normalized.secteur;
+  var taille = normalized.taille;
+  var message = normalized.message;
 
   if (!prenom || !nom || !email || !societe) {
     return res.status(400).json({
@@ -232,7 +306,7 @@ app.post('/api/send-demo-request', demoRequestLimiter, async function (req, res)
   if (!emailRegex.test(email)) {
     return res.status(400).json({
       success: false,
-      error: 'Champs obligatoires manquants',
+      error: 'Adresse email invalide.',
     });
   }
 
